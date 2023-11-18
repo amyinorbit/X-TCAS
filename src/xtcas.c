@@ -40,6 +40,10 @@
 #include "SL.h"
 #include "xtcas.h"
 
+#if VSI_DRAW_MODE
+#include "vsi.h"
+#endif
+
 #define	ALT_ROUND_MUL		FPM2MPS(100)	/* altitude rouding multiple */
 #define	EQ_ALT_THRESH		FEET2MET(100)	/* equal altitude threshold */
 #define	D_VVEL_MAN_THRESH	FPM2MPS(200)	/* m/s^2 */
@@ -523,6 +527,92 @@ static bool_t worker_shutdown = B_FALSE;
 static const sim_intf_input_ops_t *in_ops = NULL;
 static const sim_intf_output_ops_t *out_ops = NULL;
 
+static void
+update_contact(
+    void *acf_id,
+    double rbrg,
+    double rdist,
+    double ralt,
+    double vs,
+    double trk,
+    double gs,
+    tcas_threat_t level
+) {
+    if(out_ops != NULL && out_ops->update_contact != NULL) {
+        out_ops->update_contact(out_ops->handle, acf_id, rbrg, rdist, ralt, vs, trk, gs, level);
+    }
+#if VSI_DRAW_MODE
+    vsi_update_contact(NULL, acf_id, rbrg, rdist, ralt, vs, trk, gs, level);
+#endif
+}
+
+static void
+delete_contact(void *acf_id) {
+    if(out_ops != NULL && out_ops->delete_contact != NULL) {
+        out_ops->delete_contact(out_ops->handle, acf_id);
+    }
+#if VSI_DRAW_MODE
+    vsi_delete_contact(NULL, acf_id);
+#endif
+}
+
+static void
+update_RA(
+    tcas_adv_t adv,
+    tcas_msg_t msg,
+    tcas_RA_type_t type,
+    tcas_RA_sense_t sense,
+    bool_t crossing,
+    bool_t reversal,
+    double min_sep_cpa,
+    double min_green,
+    double max_green,
+    double min_red_lo,
+    double max_red_lo,
+    double min_red_hi,
+    double max_red_hi
+) {
+    if(out_ops != NULL && out_ops->update_RA != NULL) {
+        out_ops->update_RA(out_ops->handle, adv, msg,
+            type, sense, crossing,
+            reversal, min_sep_cpa,
+            min_green, max_green,
+            min_red_lo, max_red_lo,
+            min_red_hi, max_red_hi);
+    }
+#if VSI_DRAW_MODE
+    vsi_update_RA(NULL, adv, msg,
+            type, sense, crossing,
+            reversal, min_sep_cpa,
+            min_green, max_green,
+            min_red_lo, max_red_lo,
+            min_red_hi, max_red_hi);
+#endif
+}
+
+static void
+update_RA_prediction(
+    tcas_msg_t msg,
+    tcas_RA_type_t type,
+    tcas_RA_sense_t sense,
+    bool_t crossing,
+    bool_t reversal,
+    double min_sep_cpa
+) {
+    if(out_ops != NULL && out_ops->update_RA_prediction != NULL) {
+        out_ops->update_RA_prediction(out_ops->handle, msg, type,
+            sense, crossing, reversal, min_sep_cpa);
+    }
+}
+
+static void
+play_audio_msg(tcas_msg_t msg) {
+    if(out_ops != NULL && out_ops->play_audio_msg != NULL) {
+        out_ops->play_audio_msg(out_ops->handle, msg);
+    }
+}
+    
+
 static const char *
 RA_msg2str(tcas_msg_t msg)
 {
@@ -806,8 +896,7 @@ update_bogie_positions(double t, geo_pos3_t my_pos, double my_alt_agl)
 			dbg_log(contact, 2, "bogie %p contact lost",
 			    acf->acf_id);
 			if (out_ops != NULL) {
-				out_ops->delete_contact(out_ops->handle,
-				    acf->acf_id);
+				delete_contact(acf->acf_id);
 			}
 			avl_remove(&other_acf_glob, acf);
 			free(acf);
@@ -2174,13 +2263,9 @@ resolve_CPAs(tcas_acf_t *my_acf, avl_tree_t *other_acf, avl_tree_t *cpas,
 
 		if (ra != NULL) {
 			bool_t inhibit_audio;
-			if (out_ops != NULL &&
-			    out_ops->update_RA_prediction != NULL) {
-				out_ops->update_RA_prediction(out_ops->handle,
-				    ra->info->msg, ra->info->type,
-				    ra->info->sense, ra->crossing,
-				    ra->reversal, ra->min_sep);
-			}
+			update_RA_prediction(ra->info->msg, ra->info->type,
+		        ra->info->sense, ra->crossing,
+		        ra->reversal, ra->min_sep);
 			if (now - tcas_state.change_t >= STATE_CHG_DELAY) {
 				tcas_msg_t prev_msg = -1;
 				tcas_msg_t msg;
@@ -2216,28 +2301,21 @@ resolve_CPAs(tcas_acf_t *my_acf, avl_tree_t *other_acf, avl_tree_t *cpas,
 #ifndef	XTCAS_NO_AUDIO
 					xtcas_play_msg(msg);
 #endif
-					if (out_ops != NULL &&
-					    out_ops->play_audio_msg != NULL) {
-						out_ops->play_audio_msg(
-						    out_ops->handle,
-						    msg);
-					}
+                    play_audio_msg(msg);
 				}
 				if (ra->info->type == RA_TYPE_CORRECTIVE) {
 					min_green = ra->info->vs.out.min;
 					max_green = ra->info->vs.out.max;
 				}
-				if (out_ops != NULL) {
-					out_ops->update_RA(out_ops->handle,
-					    ADV_STATE_RA, msg, ri->type,
-					    ri->sense, ra->crossing,
-					    ra->reversal, ra->min_sep,
-					    min_green, max_green,
-					    ra->info->vs.red_lo.min,
-					    ra->info->vs.red_lo.max,
-					    ra->info->vs.red_hi.min,
-					    ra->info->vs.red_hi.max);
-				}
+				update_RA(
+				    ADV_STATE_RA, msg, ri->type,
+				    ri->sense, ra->crossing,
+				    ra->reversal, ra->min_sep,
+				    min_green, max_green,
+				    ra->info->vs.red_lo.min,
+				    ra->info->vs.red_lo.max,
+				    ra->info->vs.red_hi.min,
+				    ra->info->vs.red_hi.max);
 			} else {
 				/*
 				 * Avoid attempting to generate RA hints yet,
@@ -2277,22 +2355,16 @@ resolve_CPAs(tcas_acf_t *my_acf, avl_tree_t *other_acf, avl_tree_t *cpas,
 #ifndef	XTCAS_NO_AUDIO
 				xtcas_play_msg(RA_MSG_TFC);
 #endif
-				if (out_ops != NULL &&
-				    out_ops->play_audio_msg != NULL) {
-					out_ops->play_audio_msg(out_ops->handle,
-					    RA_MSG_TFC);
-				}
+				play_audio_msg(RA_MSG_TFC);
 #endif	/* !GTS820_MODE */
 			}
 			free(tcas_state.ra);
 			tcas_state.ra = NULL;
 			tcas_state.initial_ra_vs = NAN;
 			tcas_state.adv_state = ADV_STATE_TA;
-			if (out_ops != NULL) {
-				out_ops->update_RA(out_ops->handle,
-				    ADV_STATE_TA, RA_MSG_TFC, -1, -1, B_FALSE,
-				    B_FALSE, 0, 0, 0, 0, 0, 0, 0);
-			}
+			update_RA(
+			    ADV_STATE_TA, RA_MSG_TFC, -1, -1, B_FALSE,
+			    B_FALSE, 0, 0, 0, 0, 0, 0, 0);
 		}
 	} else if (tcas_state.adv_state != ADV_STATE_NONE &&
 	    now - tcas_state.change_t >= STATE_CHG_DELAY) {
@@ -2303,18 +2375,12 @@ resolve_CPAs(tcas_acf_t *my_acf, avl_tree_t *other_acf, avl_tree_t *cpas,
 #ifndef	XTCAS_NO_AUDIO
 			xtcas_play_msg(RA_MSG_CLEAR);
 #endif	/* !defined(XTCAS_NO_AUDIO) */
-			if (out_ops != NULL &&
-			    out_ops->play_audio_msg != NULL) {
-				out_ops->play_audio_msg(out_ops->handle,
-				    RA_MSG_CLEAR);
-			}
+			play_audio_msg(RA_MSG_CLEAR);
 		}
 		free(tcas_state.ra);
-		if (out_ops != NULL) {
-			out_ops->update_RA(out_ops->handle, ADV_STATE_NONE,
-			    RA_MSG_CLEAR, -1, -1, B_FALSE, B_FALSE,
-			    0, 0, 0, 0, 0, 0, 0);
-		}
+		update_RA(ADV_STATE_NONE,
+		    RA_MSG_CLEAR, -1, -1, B_FALSE, B_FALSE,
+		    0, 0, 0, 0, 0, 0, 0);
 		tcas_state.ra = NULL;
 		tcas_state.initial_ra_vs = NAN;
 		tcas_state.adv_state = ADV_STATE_NONE;
@@ -2350,25 +2416,19 @@ update_contacts(tcas_acf_t *my_acf, avl_tree_t *other_acf, bool_t test)
 	 */
 	for (tcas_acf_t *acf = avl_first(other_acf); acf != NULL;
 	    acf = AVL_NEXT(other_acf, acf)) {
-		if (acf->gs < FALSE_CTC_SUPPRESS_GS && !test &&
-		    out_ops != NULL)
-			out_ops->delete_contact(out_ops->handle, acf->acf_id);
+		if (acf->gs < FALSE_CTC_SUPPRESS_GS && !test)
+			delete_contact(acf->acf_id);
 	}
 
 	if (tcas_state.filter == TCAS_FILTER_THRT &&
 	    tcas_state.adv_state == ADV_STATE_NONE && !test) {
 		for (tcas_acf_t *acf = avl_first(other_acf); acf != NULL;
 		    acf = AVL_NEXT(other_acf, acf)) {
-			if (out_ops != NULL) {
-				out_ops->delete_contact(out_ops->handle,
-				    acf->acf_id);
-			}
+			delete_contact(acf->acf_id);
 		}
 	} else {
 		for (tcas_acf_t *acf = avl_first(other_acf); acf != NULL;
 		    acf = AVL_NEXT(other_acf, acf)) {
-			if (out_ops == NULL)
-				continue;
 			if (!acf->on_ground) {
 				vect2_t pos_2d =
 				    VECT3_TO_VECT2(acf->cur_pos_3d);
@@ -2379,15 +2439,14 @@ update_contacts(tcas_acf_t *my_acf, avl_tree_t *other_acf, bool_t test)
 				    my_acf->hdg) : 0);
 				double ralt = acf->cur_pos_3d.z -
 				    my_acf->cur_pos_3d.z;
-				out_ops->update_contact(out_ops->handle,
+				update_contact(
 				    acf->acf_id, rbrg, rdist, ralt,
 				    acf->trend_data_ready ? acf->vvel : NAN,
 				    acf->trend_data_ready ? acf->trk : NAN,
 				    acf->trend_data_ready ? acf->gs : NAN,
 				    acf->threat);
 			} else {
-				out_ops->delete_contact(out_ops->handle,
-				    acf->acf_id);
+				delete_contact(acf->acf_id);
 			}
 		}
 	}
@@ -2434,56 +2493,48 @@ main_loop(void *ignored)
 			if (isnan(tcas_state.test_start_time)) {
 				tcas_state.test_start_time = now_t;
 
-				if (out_ops != NULL) {
-					/*
-					 * During a system test, we give a
-					 * normal climb indication on the PFD.
-					 */
+            /*
+             * During a system test, we give a
+             * normal climb indication on the PFD.
+             */
 #if	GTS820_MODE
-					out_ops->update_RA(out_ops->handle,
-					    ADV_STATE_TA, RA_MSG_TFC,
-					    -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            update_RA(
+                ADV_STATE_TA, RA_MSG_TFC,
+                -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 #elif	VSI_DRAW_MODE
-					out_ops->update_RA(out_ops->handle,
-					    ADV_STATE_RA, RA_MSG_CLB,
-					    RA_TYPE_CORRECTIVE, RA_SENSE_UPWARD,
-					    B_FALSE, B_FALSE, 0, FPM2MPS(0),
-					    FPM2MPS(300),
-					    -INF_VS, FPM2MPS(0),
-					    FPM2MPS(2000), INF_VS);
+            update_RA(
+                ADV_STATE_RA, RA_MSG_CLB,
+                RA_TYPE_CORRECTIVE, RA_SENSE_UPWARD,
+                B_FALSE, B_FALSE, 0, FPM2MPS(0),
+                FPM2MPS(300),
+                -INF_VS, FPM2MPS(0),
+                FPM2MPS(2000), INF_VS);
 #else	/* !VSI_DRAW_MODE */
-					out_ops->update_RA(out_ops->handle,
-					    ADV_STATE_RA, RA_MSG_CLB,
-					    RA_TYPE_CORRECTIVE, RA_SENSE_UPWARD,
-					    B_FALSE, B_FALSE, 0,
-					    0, FPM2MPS(300),
-					    -INF_VS, 0, FPM2MPS(1500), INF_VS);
+            update_RA(
+                ADV_STATE_RA, RA_MSG_CLB,
+                RA_TYPE_CORRECTIVE, RA_SENSE_UPWARD,
+                B_FALSE, B_FALSE, 0,
+                0, FPM2MPS(300),
+                -INF_VS, 0, FPM2MPS(1500), INF_VS);
 #endif	/* !VSI_DRAW_MODE */
-				}
 			} else if (now_t - tcas_state.test_start_time >
 			    TCAS_TEST_DUR) {
 				/* Remove the fake test contacts */
-				if (out_ops != NULL) {
-					for (uintptr_t i = 1; i <= NUM_TEST_CTC;
-					    i++) {
-						out_ops->delete_contact(
-						    out_ops->handle, (void *)i);
-					}
-					out_ops->update_RA(out_ops->handle,
-					    ADV_STATE_NONE, RA_MSG_CLEAR, -1,
-					    -1, B_FALSE, B_FALSE, 0, 0, 0, 0,
-					    0, 0, 0);
+				
+				for (uintptr_t i = 1; i <= NUM_TEST_CTC;
+				    i++) {
+					delete_contact((void *)i);
 				}
+				update_RA(
+				    ADV_STATE_NONE, RA_MSG_CLEAR, -1,
+				    -1, B_FALSE, B_FALSE, 0, 0, 0, 0,
+				    0, 0, 0);
 				tcas_state.test_start_time = NAN;
 				tcas_state.test_in_prog = B_FALSE;
 #ifndef	XTCAS_NO_AUDIO
 				xtcas_play_msg(TCAS_TEST_PASS);
 #endif
-				if (out_ops != NULL &&
-				    out_ops->play_audio_msg != NULL) {
-					out_ops->play_audio_msg(out_ops->handle,
-					    TCAS_TEST_PASS);
-				}
+                play_audio_msg(TCAS_TEST_PASS);
 			}
 		}
 		test = tcas_state.test_in_prog;
@@ -2773,10 +2824,7 @@ xtcas_test(bool_t force_fail)
 #ifndef	XTCAS_NO_AUDIO
 		xtcas_play_msg(TCAS_TEST_FAIL);
 #endif
-		if (out_ops != NULL && out_ops->play_audio_msg != NULL) {
-			out_ops->play_audio_msg(out_ops->handle,
-			    TCAS_TEST_FAIL);
-		}
+		play_audio_msg(TCAS_TEST_FAIL);
 		return;
 	}
 	if (!xtcas_test_check(&reason)) {
@@ -2784,10 +2832,7 @@ xtcas_test(bool_t force_fail)
 #ifndef	XTCAS_NO_AUDIO
 		xtcas_play_msg(TCAS_TEST_FAIL);
 #endif
-		if (out_ops != NULL && out_ops->play_audio_msg != NULL) {
-			out_ops->play_audio_msg(out_ops->handle,
-			    TCAS_TEST_FAIL);
-		}
+		play_audio_msg(TCAS_TEST_FAIL);
 		return;
 	}
 	mutex_enter(&tcas_state.test_lock);

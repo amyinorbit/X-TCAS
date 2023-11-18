@@ -172,15 +172,16 @@ static const sim_intf_input_ops_t xp_intf_in_ops = {
 	.get_oth_acf_pos = xp_get_oth_acf_pos,
 };
 
-#if	VSI_DRAW_MODE
-static const sim_intf_output_ops_t vsi_out_ops = {
-	.handle = NULL,
-	.update_contact = vsi_update_contact,
-	.delete_contact = vsi_delete_contact,
-	.update_RA = vsi_update_RA,
-	.update_RA_prediction = NULL
-};
-#else	/* !VSI_DRAW_MODE */
+// #if    VSI_DRAW_MODE
+// static const sim_intf_output_ops_t vsi_out_ops = {
+//     .handle = NULL,
+//     .update_contact = vsi_update_contact,
+//     .delete_contact = vsi_delete_contact,
+//     .update_RA = vsi_update_RA,
+//     .update_RA_prediction = NULL
+// };
+// #else    /* !VSI_DRAW_MODE */
+#if !VSI_DRAW_MODE
 static const sim_intf_output_ops_t xplane_test_out_ops = {
 	.handle = NULL,
 	.update_contact = xplane_test_update_contact,
@@ -188,7 +189,7 @@ static const sim_intf_output_ops_t xplane_test_out_ops = {
 	.update_RA = xplane_test_update_RA,
 	.update_RA_prediction = NULL
 };
-#endif	/* !VSI_DRAW_MODE */
+#endif    /* !VSI_DRAW_MODE */
 
 static bool_t ff_a320_intf_inited = B_FALSE;
 
@@ -475,20 +476,17 @@ floop_cb(float elapsed_since_last_call, float elapsed_since_last_floop,
 			/* FF A320 integration mode */
 			ff_a320_intf_inited = B_TRUE;
 		} else {
-#if	VSI_DRAW_MODE
-			out_ops = &vsi_out_ops;
-#else	/* !VSI_DRAW_MODE */
 			out_ops = generic_intf_get_xtcas_ops();
 			if (out_ops == NULL) {
 				standalone_mode = B_TRUE;
+#if !VSI_DRAW_MODE
 				out_ops = &xplane_test_out_ops;
-
 				XPLMRegisterCommandHandler(show_test_gui_cmd,
 				    test_gui_handler, 1, NULL);
 				XPLMRegisterCommandHandler(hide_test_gui_cmd,
 				    test_gui_handler, 1, NULL);
-			}
 #endif	/* !VSI_DRAW_MODE */
+			}
 
 			XPLMRegisterCommandHandler(filter_all_cmd,
 			    tcas_config_handler, 1, NULL);
