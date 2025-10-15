@@ -772,7 +772,7 @@ draw_mode(vsi_t *vsi, vsi_tex_t *tex)
 #define	MSG_X_OFF	-0.48
 #define	MSG_Y_OFF	0.38
 	const char *msgs[2] = { NULL, NULL };
-	tcas_mode_t mode = xtcas_get_mode();
+	tcas_mode_t mode = xtcas_get_mode_act();
 
 	if (USEC2SEC(microclock() - vsi->start_time) < VSI_TCAS_DELAY ||
 	    !xpdr_functional) {
