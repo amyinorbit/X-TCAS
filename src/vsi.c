@@ -738,7 +738,7 @@ draw_mode(vsi_t *vsi, vsi_tex_t *tex)
 #define	MODE_MSG_SZ	0.08
 #define	MSG_X_OFF	0.02
 	const char *msg;
-	tcas_mode_t mode = xtcas_get_mode();
+	tcas_mode_t mode = xtcas_get_mode_act();
 	cairo_text_extents_t te;
 
 	if (USEC2SEC(microclock() - vsi->start_time) < VSI_TCAS_DELAY ||
