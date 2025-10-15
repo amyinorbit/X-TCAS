@@ -121,4 +121,5 @@ cp -r $SNDSET/*.wav "$OUTPUT/data/msgs"
 
 if [[ "$VSI_STYLE" != 0 ]]; then
 	cp -r fonts "$OUTPUT/data/"
+	cp X-TCAS.cfg "$OUTPUT/"
 fi

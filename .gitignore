@@ -16,3 +16,5 @@ X-TCAS
 mac_x64
 lin_x64
 win_x64
+*.zip
+notarize/
